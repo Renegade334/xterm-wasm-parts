@@ -5,7 +5,7 @@ import Base64Encoder from './Base64Encoder.wasm';
 // eslint-disable-next-line
 declare const Buffer: any;
 
-function toBytes(s: string): Uint8Array {
+function toBytes(s: string): Uint8Array<ArrayBuffer> {
   const bytes = new Uint8Array(s.length);
   for (let i = 0; i < s.length; ++i) {
     bytes[i] = s.charCodeAt(i) & 0xFF;

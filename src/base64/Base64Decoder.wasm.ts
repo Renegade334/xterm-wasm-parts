@@ -2,21 +2,31 @@
  * Copyright (c) 2023 The xterm.js authors. All rights reserved.
  * @license MIT
  */
-import { InWasm, OutputMode, OutputType } from 'inwasm';
+import { InWasm, OutputMode, OutputType } from 'inwasm-runtime';
 
 
 // memory addresses in uint32
 const enum P32 {
+  // 1. byte table
   D0 = 256,
+  // 2. byte table
   D1 = 512,
+  // 3. byte table
   D2 = 768,
+  // 4. byte table
   D3 = 1024,
+  // address of state struct
   STATE = 1280,
+  // state.wp: end of base64 data
   STATE_WP = 1280,
+  // state.sp: read position of base64 data
   STATE_SP = 1281,
+  // state.dp: write position of decoded data
   STATE_DP = 1282,
+  // state.e_size: max byte expected
   STATE_ESIZE = 1283,
-  STATE_DATA = 1288   // 16 aligned
+  // state.data: data[0]
+  STATE_DATA = 1288   // 16 byte aligned
 }
 
 /**
@@ -64,8 +74,7 @@ const wasmDecode = InWasm({
       // 4x loop unrolling (~30% speedup)
       // FIXME: investigate why zeroing the last bits of nsp does not always work here
       //        a temp fix is the line below, which always subtracts 16 from the end pointer
-      //        this has a tiny penalty of always doing the last portion in 4-bytes, -16 is safe,
-      //        as it is further guarded by the big chunk clause in Base64Decoder.put
+      //        this has a tiny penalty of always doing the last portion in 4-bytes
       //unsigned char *end16 = state->data + (nsp & ~15);
       unsigned char *end16 = state->data + nsp - 16;
       while (src < end16) {
@@ -270,8 +279,6 @@ const wasmDecode = InWasm({
 });
 */
 
-// FIXME: currently broken in inwasm
-type WasmDecodeType = ReturnType<typeof wasmDecode>;
 
 // base64 map
 const MAP = new Uint8Array(
@@ -294,7 +301,6 @@ const EMPTY = new Uint8Array(0);
  * base64 streamline inplace decoder.
  *
  * Features / assumptions:
- * - optimized uint32 read/write (only LE support!)
  * - lazy chunkwise decoding
  * - errors out on any non base64 chars (no support for NL formatted base64)
  * - decodes in wasm
@@ -302,9 +308,9 @@ const EMPTY = new Uint8Array(0);
  * - supports a keepSize for lazy memory release
  */
 export default class Base64Decoder {
-  private _d!: Uint8Array;
-  private _m32!: Uint32Array;
-  private _inst!: WasmDecodeType;
+  private _d!: Uint8Array<ArrayBuffer>;
+  private _m32!: Uint32Array<ArrayBuffer>;
+  private _inst!: ReturnType<typeof wasmDecode>;
   private _mem!: WebAssembly.Memory;
 
   constructor(public keepSize: number) { }
@@ -313,7 +319,7 @@ export default class Base64Decoder {
    * Currently decoded bytes (borrowed).
    * Must be accessed before calling `release` or `init`.
    */
-  public get data8(): Uint8Array {
+  public get data8(): Uint8Array<ArrayBuffer> {
     return this._inst ? this._d.subarray(0, this._m32[P32.STATE_DP]) : EMPTY;
   }
 

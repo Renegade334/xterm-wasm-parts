@@ -12,7 +12,7 @@ function toBs(bytes: Uint8Array): string {
   for (let i = 0; i < bytes.length; ++i) bs += String.fromCharCode(bytes[i]);
   return bs;
 }
-function fromBs(bs: string): Uint8Array {
+function fromBs(bs: string): Uint8Array<ArrayBuffer> {
   const r = new Uint8Array(bs.length);
   for (let i = 0; i < r.length; ++i) r[i] = bs.charCodeAt(i);
   return r;
