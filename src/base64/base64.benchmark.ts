@@ -21,7 +21,7 @@ const b256   = toBytes(d256);
 const b4096  = toBytes(d4096);
 const b65536 = toBytes(d65536);
 const b1M    = toBytes(d1M);
-const dec = new Base64Decoder(4000000);
+const dec = new Base64Decoder(4000000, 4000000, 4000000);
 const enc = new Base64Encoder(4000000);
 
 const RUNS = 100;
@@ -51,28 +51,28 @@ perfContext('Base64 - decode', () => {
 
   perfContext('Base64Decoder', () => {
     new ThroughputRuntimeCase('256', () => {
-      dec.init(192);
+      dec.init();
       dec.put(b256);
       dec.end();
       return { payloadSize: b256.length };
     }, { repeat: RUNS }).showAverageThroughput();
 
     new ThroughputRuntimeCase('4096', () => {
-      dec.init(3072);
+      dec.init();
       dec.put(b4096);
       dec.end();
       return { payloadSize: b4096.length };
     }, { repeat: RUNS }).showAverageThroughput();
 
     new ThroughputRuntimeCase('65536', () => {
-      dec.init(49152);
+      dec.init();
       dec.put(b65536);
       dec.end();
       return { payloadSize: b65536.length };
     }, { repeat: RUNS }).showAverageThroughput();
 
     new ThroughputRuntimeCase('1048576', () => {
-      dec.init(786432);
+      dec.init();
       dec.put(b1M);
       dec.end();
       return { payloadSize: b1M.length };

@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import Base64Decoder from './Base64Decoder.wasm';
+import Base64Decoder, { Return } from './Base64Decoder.wasm';
 import Base64Encoder from './Base64Encoder.wasm';
 
 // eslint-disable-next-line
@@ -38,11 +38,11 @@ describe('Base64Decoder', () => {
       this.timeout(20000);
       const dec = new Base64Decoder(0);
       for (let i = 0; i < 256; ++i) {
-        dec.init(1);
+        dec.init(4);
         const inp = new Uint8Array([i]);
         const data = fromBs(encNative(inp));
-        assert.strictEqual(dec.put(data), 0);
-        assert.strictEqual(dec.end(), 0);
+        assert.strictEqual(dec.put(data), Return.OK);
+        assert.strictEqual(dec.end(), Return.OK);
         assert.deepEqual(dec.data8, inp);
       }
     });
@@ -50,11 +50,11 @@ describe('Base64Decoder', () => {
       it(`1+2 bytes (${a})`, function () {
         const dec = new Base64Decoder(0);
         for (let b = 0; b < 256; ++b) {
-          dec.init(2);
+          dec.init(4);
           const inp = new Uint8Array([a, b]);
           const data = fromBs(encNative(inp));
-          assert.strictEqual(dec.put(data), 0);
-          assert.strictEqual(dec.end(), 0);
+          assert.strictEqual(dec.put(data), Return.OK);
+          assert.strictEqual(dec.end(), Return.OK);
           assert.deepEqual(dec.data8, inp);
         }
       });
@@ -63,11 +63,11 @@ describe('Base64Decoder', () => {
       it(`2+3 bytes (${a})`, function () {
         const dec = new Base64Decoder(0);
         for (let b = 0; b < 256; ++b) {
-          dec.init(3);
+          dec.init(4);
           const inp = new Uint8Array([0, a, b]);
           const data = fromBs(encNative(inp));
-          assert.strictEqual(dec.put(data), 0);
-          assert.strictEqual(dec.end(), 0);
+          assert.strictEqual(dec.put(data), Return.OK);
+          assert.strictEqual(dec.end(), Return.OK);
           assert.deepEqual(dec.data8, inp);
         }
       });
@@ -76,11 +76,11 @@ describe('Base64Decoder', () => {
       it(`3+4 bytes (${a})`, function () {
         const dec = new Base64Decoder(0);
         for (let b = 0; b < 256; ++b) {
-          dec.init(4);
+          dec.init(8);
           const inp = new Uint8Array([0, 0, a, b]);
           const data = fromBs(encNative(inp));
-          assert.strictEqual(dec.put(data), 0);
-          assert.strictEqual(dec.end(), 0);
+          assert.strictEqual(dec.put(data), Return.OK);
+          assert.strictEqual(dec.end(), Return.OK);
           assert.deepEqual(dec.data8, inp);
         }
       });
@@ -96,16 +96,16 @@ describe('Base64Decoder', () => {
       }
       for (let i = 0; i < encData.length; ++i) {
         // with padding
-        dec.init(i + 1);
         let enc = fromBs(encData[i]);
-        assert.strictEqual(dec.put(enc), 0);
-        assert.strictEqual(dec.end(), 0);
+        dec.init(enc.length);
+        assert.strictEqual(dec.put(enc), Return.OK);
+        assert.strictEqual(dec.end(), Return.OK);
         assert.deepEqual(dec.data8, d.slice(0, i + 1));
         // w'o padding
-        dec.init(i + 1);
         enc = fromBs(encDataTrimmed[i]);
-        assert.strictEqual(dec.put(enc), 0);
-        assert.strictEqual(dec.end(), 0);
+        dec.init(enc.length);
+        assert.strictEqual(dec.put(enc), Return.OK);
+        assert.strictEqual(dec.end(), Return.OK);
         assert.deepEqual(dec.data8, d.slice(0, i + 1));
       }
     });
@@ -116,10 +116,15 @@ describe('Base64Decoder', () => {
         const inp = new Uint8Array([65, 65, 65, 65, 65, 65, 65, 65]);
         for (let i = 0; i < 256; ++i) {
           dec.release();
-          dec.init(6);
+          dec.init(8);
           inp[pos] = i;
           // note: explicitly allow '=' in last position
-          assert.strictEqual(dec.put(inp) || dec.end(), MAP.includes(i) || (pos === 7 && i == 61) ? 0 : -1);
+          assert.strictEqual(
+            dec.put(inp) || dec.end(),
+            MAP.includes(i) || (pos === 7 && i == 61)
+              ? Return.OK
+              : Return.DECODE_ERROR
+          );
         }
       }
     });
@@ -135,9 +140,9 @@ describe('Base64Decoder', () => {
       assert.strictEqual(dec.data8.length, 0);
       assert.strictEqual((dec as any)._mem, null);
     });
-    it('keep 1 page (keepSize 65536)', () => {
-      const dec = new Base64Decoder(65536);
-      dec.init(384);
+    it('keep 1 page (keepSize 65535)', () => {
+      const dec = new Base64Decoder(65535);
+      dec.init(512);
       dec.put(fromBs('A'.repeat(512)));
       dec.end();
       assert.strictEqual(dec.data8.length, 384);
@@ -152,6 +157,164 @@ describe('Base64Decoder', () => {
       dec.release();
       assert.strictEqual(dec.data8.length, 0);
       assert.strictEqual((dec as any)._mem, null);
+    });
+    it('realloc', () => {
+      const DATA1 = new Uint8Array([66]);
+      const dec = new Base64Decoder(0, 11, 1);
+      dec.init(); // pulls values from ctor
+      assert.strictEqual((dec as any)._bytes, 1);
+      // write 1. byte
+      assert.strictEqual(dec.put(DATA1), Return.OK);
+      assert.strictEqual((dec as any)._bytes, 1);
+      // write 2. byte
+      assert.strictEqual(dec.put(DATA1), Return.OK);
+      assert.strictEqual((dec as any)._bytes, 2);
+      // write 3. & 4. byte
+      assert.strictEqual(dec.put(DATA1), Return.OK);
+      assert.strictEqual((dec as any)._bytes, 4);
+      assert.strictEqual(dec.put(DATA1), Return.OK);
+      assert.strictEqual((dec as any)._bytes, 4);
+      // write 5. - 8. byte
+      assert.strictEqual(dec.put(DATA1), Return.OK);
+      assert.strictEqual((dec as any)._bytes, 8);
+      assert.strictEqual(dec.put(DATA1), Return.OK);
+      assert.strictEqual(dec.put(DATA1), Return.OK);
+      assert.strictEqual(dec.put(DATA1), Return.OK);
+      assert.strictEqual((dec as any)._bytes, 8);
+      // 9. byte clamps to maxByte
+      assert.strictEqual(dec.put(DATA1), Return.OK);
+      assert.strictEqual((dec as any)._bytes, 11);
+      assert.strictEqual(dec.put(DATA1), Return.OK);
+      assert.strictEqual(dec.put(DATA1), Return.OK);
+      // 12. byte returns size error
+      assert.strictEqual(dec.put(DATA1), Return.SIZE_EXCEEDED);
+      // end still works and gives correct result
+      assert.strictEqual(dec.end(), Return.OK);
+      assert.deepEqual(dec.data8, Buffer.from('B'.repeat(11), 'base64'));
+    });
+    it('realloc with memory.grow', () => {
+      const DATA = fromBs('B'.repeat(65536));
+      // magic number 5152 - lower memory taken by LUT
+      const dec = new Base64Decoder(0, 125000, 30192);  // 30192 = (65536 - 5152) / 2
+      dec.init();
+      assert.strictEqual((dec as any)._bytes, 30192);
+      // writing 30192 bytes should not realloc
+      assert.strictEqual(dec.put(DATA.subarray(0, 30192)), Return.OK);
+      assert.strictEqual((dec as any)._bytes, 30192);
+      assert.strictEqual(dec.freeBytes, 125000-30192);
+      // write next byte reallocs w'o grow
+      assert.strictEqual(dec.put(DATA.subarray(0, 1)), Return.OK);
+      assert.strictEqual((dec as any)._bytes, 30192*2);
+      assert.strictEqual(dec.freeBytes, 125000-30192-1);
+      // writing 30192-1 bytes should not realloc
+      assert.strictEqual(dec.put(DATA.subarray(0, 30192-1)), Return.OK);
+      assert.strictEqual((dec as any)._bytes, 30192*2);
+      assert.strictEqual((dec as any)._mem.buffer.byteLength, 65536);
+      assert.strictEqual(dec.freeBytes, 125000-30192-1-30192+1);
+      // write next byte reallocs with grow
+      assert.strictEqual(dec.put(DATA.subarray(0, 1)), Return.OK);
+      assert.strictEqual((dec as any)._bytes, 30192*4);
+      assert.strictEqual((dec as any)._mem.buffer.byteLength, 65536*2);
+      assert.strictEqual(dec.freeBytes, 125000-30192-1-30192+1-1);
+      // don't grow beyond 125000
+      assert.strictEqual(dec.put(DATA.subarray(0, 30192*2-1)), Return.OK);
+      assert.strictEqual((dec as any)._bytes, 30192*4);
+      assert.strictEqual(dec.put(DATA.subarray(0, 1)), Return.OK);
+      assert.strictEqual((dec as any)._bytes, 125000);
+      assert.strictEqual(dec.freeBytes, 125000-30192-1-30192+1-1-30192*2+1-1);
+      // write to 125000
+      assert.strictEqual(dec.put(DATA.subarray(0, dec.freeBytes)), Return.OK);
+      assert.strictEqual(dec.put(DATA.subarray(0, 1)), Return.SIZE_EXCEEDED);
+      assert.strictEqual(dec.end(), Return.OK);
+      assert.deepEqual(dec.data8, Buffer.from('B'.repeat(125000), 'base64'));
+    });
+  });
+  describe('lifecycling & properties', () => {
+    it('defaults', () => {
+      const dec = new Base64Decoder();
+      dec.init();
+      assert.strictEqual(dec.freeBytes, 65535*65536);
+      assert.strictEqual((dec as any)._bytes, 32768);
+      assert.strictEqual(dec.keepSize, 1024*1024);
+      dec.release();
+      assert.notEqual((dec as any)._inst, null);
+      dec.init();
+      assert.strictEqual(dec.put(fromBs('B'.repeat(1024*1024+2))), Return.OK);
+      assert.strictEqual(dec.end(), Return.OK);
+      assert.deepEqual(dec.data8, Buffer.from('B'.repeat(1024*1024+2), 'base64'));
+      assert.strictEqual(dec.loadedBytes, 1024*1024+2);
+      assert.strictEqual(dec.freeBytes, 65535*65536-1024*1024-2);
+      dec.release();
+      assert.strictEqual((dec as any)._inst, null);
+    });
+    it('ctor args', () => {
+      let dec = new Base64Decoder(1024, 128, 16);
+      dec.init();
+      assert.strictEqual(dec.freeBytes, 128);
+      assert.strictEqual((dec as any)._bytes, 16);
+      assert.strictEqual(dec.keepSize, 1024);
+      dec = new Base64Decoder(undefined, undefined, undefined);
+      dec.init();
+      assert.strictEqual(dec.freeBytes, 65535*65536);
+      assert.strictEqual((dec as any)._bytes, 32768);
+      assert.strictEqual(dec.keepSize, 1024*1024);
+    });
+    it('initialBytes > maxBytes throws', () => {
+      assert.throws(() => {new Base64Decoder(undefined, 16, 32)});
+      assert.throws(() => {(new Base64Decoder()).init(16, 32)});
+    });
+    it('init args overwrite ctor args', () =>{
+      let dec = new Base64Decoder();
+      dec.init(32);
+      assert.strictEqual(dec.freeBytes, 32);
+      assert.strictEqual((dec as any)._bytes, 32);
+      assert.strictEqual(dec.keepSize, 1024*1024);
+
+      dec = new Base64Decoder();
+      dec.init(32, 8);
+      assert.strictEqual(dec.freeBytes, 32);
+      assert.strictEqual((dec as any)._bytes, 8);
+      assert.strictEqual(dec.keepSize, 1024*1024);
+
+      dec = new Base64Decoder();
+      dec.init(undefined, 8);
+      assert.strictEqual(dec.freeBytes, 65535*65536);
+      assert.strictEqual((dec as any)._bytes, 8);
+      assert.strictEqual(dec.keepSize, 1024*1024);
+    });
+    it('old static behavior', () => {
+      // maxBytes == initialBytes allocates all at once
+      let dec = new Base64Decoder(undefined, 1024*1024, 1024*1024);
+      dec.init();
+      assert.strictEqual(
+        (dec as any)._mem.buffer.byteLength / 65536,
+        Math.ceil((1024 * 1024 + 5152) / 65536)
+      );
+
+      dec = new Base64Decoder();
+      dec.init(1024*1024, 1024*1024);
+      assert.strictEqual(
+        (dec as any)._mem.buffer.byteLength / 65536,
+        Math.ceil((1024 * 1024 + 5152) / 65536)
+      );
+      // keepSize == maxBytes == initialBytes retains everything w'o reallocation
+      dec = new Base64Decoder(1024*1024, 1024*1024, 1024*1024);
+      dec.init();
+      assert.strictEqual(
+        (dec as any)._mem.buffer.byteLength / 65536,
+        Math.ceil((1024 * 1024 + 5152) / 65536)
+      );
+      dec.release();
+      assert.notEqual((dec as any)._inst, null);
+
+      dec = new Base64Decoder(1024*1024);
+      dec.init(1024*1024, 1024*1024);
+      assert.strictEqual(
+        (dec as any)._mem.buffer.byteLength / 65536,
+        Math.ceil((1024 * 1024 + 5152) / 65536)
+      );
+      dec.release();
+      assert.notEqual((dec as any)._inst, null);
     });
   });
 });

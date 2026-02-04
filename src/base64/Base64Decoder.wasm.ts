@@ -5,6 +5,30 @@
 import { InWasm, OutputMode, OutputType } from 'inwasm-runtime';
 
 
+/**
+ * Decoder return values.
+ */
+export const enum Return {
+  /**
+   * No error.
+   */
+  OK = 0,
+  /**
+   * Error during base64 decoding.
+   * Most likely caused by malformed byte64 data.
+   */
+  DECODE_ERROR = -1,
+  /**
+   * Decoder is not initialized.
+   */
+  NOT_INITIALIZED = -2,
+  /**
+   * Memory needed exceeds `maxBytes`.
+   */
+  SIZE_EXCEEDED = -3
+}
+
+
 // memory addresses in uint32
 const enum P32 {
   // 1. byte table
@@ -24,7 +48,7 @@ const enum P32 {
   // state.dp: write position of decoded data
   STATE_DP = 1282,
   // state.e_size: max byte expected
-  STATE_ESIZE = 1283,
+  //STATE_ESIZE = 1283, // unused
   // state.data: data[0]
   STATE_DATA = 1288   // 16 byte aligned
 }
@@ -297,6 +321,30 @@ for (let i = 0; i < MAP.length; ++i) D[768 + MAP[i]] = i << 16;
 
 const EMPTY = new Uint8Array(0);
 
+
+/**
+ * Some decoder defaults.
+ */
+const enum Bytes {
+  /**
+   * Default initial is <65536 to stay within one memory page.
+   */
+  INITIAL = 32768,
+  /**
+   * Max bytes is capped at 65535 memory pages
+   * (one page reserved for LUTs).
+   */
+  MAX = 4294901760,
+  /**
+   * Default keep size in bytes.
+   */
+  KEEP = 1048576,
+
+  // internal
+  _DATA_OFFSET = P32.STATE_DATA * 4
+}
+
+
 /**
  * base64 streamline inplace decoder.
  *
@@ -313,8 +361,18 @@ export default class Base64Decoder {
   private _inst!: ReturnType<typeof wasmDecode>;
   private _mem!: WebAssembly.Memory;
   private _ended = true;
+  private _bytes = 0;
+  public keepSize: number;
+  public maxBytes: number;
 
-  constructor(public keepSize: number) { }
+  constructor(keepSize?: number, maxBytes?: number, initialBytes?: number) {
+    this.keepSize = keepSize ?? Bytes.KEEP;
+    this.maxBytes = maxBytes ?? Bytes.MAX;
+    this._bytes = initialBytes ?? Bytes.INITIAL;
+    if (this._bytes > this.maxBytes || this.maxBytes > Bytes.MAX) {
+      throw Error('invalid byte settings');
+    }
+  }
 
   /**
    * Currently decoded bytes (borrowed).
@@ -331,7 +389,7 @@ export default class Base64Decoder {
    */
   public release(): void {
     if (!this._inst) return;
-    if (this._mem.buffer.byteLength > this.keepSize) {
+    if (this._bytes > this.keepSize) {
       this._inst = this._m32 = this._d = this._mem = null!;
     } else {
       this._m32[P32.STATE_WP] = 0;
@@ -347,21 +405,26 @@ export default class Base64Decoder {
    * The method will either spawn a new wasm instance or grow
    * the needed memory of an existing instance.
    */
-  public init(size: number): void {
+  public init(maxBytes?: number, initialBytes?: number): void {
+    this.maxBytes = maxBytes ?? this.maxBytes;
+    this._bytes = initialBytes ?? Math.min(this._bytes, this.maxBytes);
+    if (this._bytes > this.maxBytes || this.maxBytes > Bytes.MAX) {
+      throw Error('invalid byte settings');
+    }
+
     let m = this._m32;
-    const bytes = (Math.ceil(size / 3) + P32.STATE_DATA) * 4;
+    const bytes = this._bytes + Bytes._DATA_OFFSET;
     if (!this._inst) {
       this._mem = new WebAssembly.Memory({ initial: Math.ceil(bytes / 65536) });
       this._inst = wasmDecode({ env: { memory: this._mem } });
       m = new Uint32Array(this._mem.buffer, 0);
       m.set(D, P32.D0);
-      this._d = new Uint8Array(this._mem.buffer, P32.STATE_DATA * 4);
+      this._d = new Uint8Array(this._mem.buffer, Bytes._DATA_OFFSET);
     } else if (this._mem.buffer.byteLength < bytes) {
       this._mem.grow(Math.ceil((bytes - this._mem.buffer.byteLength) / 65536));
       m = new Uint32Array(this._mem.buffer, 0);
-      this._d = new Uint8Array(this._mem.buffer, P32.STATE_DATA * 4);
+      this._d = new Uint8Array(this._mem.buffer, Bytes._DATA_OFFSET);
     }
-    m[P32.STATE_ESIZE] = Math.ceil(size / 3) * 4;
     m[P32.STATE_WP] = 0;
     m[P32.STATE_SP] = 0;
     m[P32.STATE_DP] = 0;
@@ -369,59 +432,76 @@ export default class Base64Decoder {
     this._ended = false;
   }
 
+  private _realloc(requested: number): Return {
+    const needed = this._m32[P32.STATE_WP] + requested;
+    if (this._bytes < needed) {
+      if (needed > this.maxBytes) {
+        return Return.SIZE_EXCEEDED;
+      }
+      let newSize = this._bytes;
+      while ((newSize *= 2) < needed) {}
+      newSize = Math.min(newSize, this.maxBytes);
+      if (newSize < needed) {
+        return Return.SIZE_EXCEEDED;
+      }
+      if (newSize + Bytes._DATA_OFFSET > this._mem.buffer.byteLength) {
+        const addPages = Math.ceil((newSize + Bytes._DATA_OFFSET - this._mem.buffer.byteLength) / 65536);
+        this._mem.grow(addPages);
+        this._m32 = new Uint32Array(this._mem.buffer, 0);
+        this._d = new Uint8Array(this._mem.buffer, Bytes._DATA_OFFSET);
+      }
+      this._bytes = newSize;
+    }
+    return Return.OK;
+  }
+
   /**
    * Put bytes in `data` into the decoder.
    * Additionally decodes the payload, if it reached 2^17 bytes.
-   * Returns 0 on success.
-   * Returns -1 on decoding error.
-   * Returns -2 on released.
-   * Returns -3 on size exceeded.
+   * The return value indicates the type of issue.
    */
-  public put(data: Uint8Array | Uint16Array | Uint32Array): number {
-    if (!this._inst || this._ended) return -2;
+  public put(data: Uint8Array | Uint16Array | Uint32Array): Return {
+    if (!this._inst || this._ended) {
+      return Return.NOT_INITIALIZED;
+    }
+    if (this._realloc(data.length)){
+      return Return.SIZE_EXCEEDED;
+    }
     const m = this._m32;
-    if (data.length + m[P32.STATE_WP] > m[P32.STATE_ESIZE]) return -3;
     this._d.set(data, m[P32.STATE_WP]);
     m[P32.STATE_WP] += data.length;
     // max chunk in input handler is 2^17, try to run in "tandem mode"
     return m[P32.STATE_WP] - m[P32.STATE_SP] >= 131072
       ? this._inst.exports.dec()
-      : 0;
+      : Return.OK;
   }
 
   /**
    * End the current decoding.
    * Also decodes leftover payload from previous put calls.
-   * Returns -1 on decoding error, else 0.
    */
-  public end(): number {
+  public end(): Return {
     this._ended = true;
-    return this._inst ? this._inst.exports.end() : -1;
+    return this._inst
+      ? this._inst.exports.end()
+      : Return.NOT_INITIALIZED;
   }
 
   /**
-   * Max bytes allowed to feed to the decoder,
-   * or -1 on released.
-   */
-  public get maxBytes(): number {
-    return this._inst ? this._m32[P32.STATE_ESIZE] : -1;
-  }
-
-  /**
-   * Bytes loaded into the decoder,
-   * or -1 on released.
+   * Bytes loaded into the decoder.
    */
   public get loadedBytes(): number {
-    return this._inst ? this._m32[P32.STATE_WP] : -1;
+    return this._inst
+      ? this._m32[P32.STATE_WP]
+      : Return.NOT_INITIALIZED;
   }
 
   /**
-   * Free bytes to feed to the decoder,
-   * or -1 on released.
+   * Free bytes to feed to the decoder.
    */
   public get freeBytes(): number {
     return this._inst
-      ? this._m32[P32.STATE_ESIZE] - this._m32[P32.STATE_WP]
-      : -1;
+      ? this.maxBytes - this._m32[P32.STATE_WP]
+      : Return.NOT_INITIALIZED;
   }
 }
