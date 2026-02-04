@@ -8,7 +8,7 @@ const enum P8 {
   LUT_P = 1024,
   DST_P = 9216
 };
-/*
+
 const wasmEncode = InWasm({
   name: 'encode',
   type: OutputType.INSTANCE,
@@ -82,9 +82,9 @@ const wasmEncode = InWasm({
     }
     `
 });
-*/
-// SIMD version (speedup ~1.6x, not covered by tests yet)
 
+// SIMD version (speedup ~1.6x, not covered by tests yet)
+/*
 const wasmEncode = InWasm({
   name: 'encode',
   type: OutputType.INSTANCE,
@@ -170,7 +170,7 @@ const wasmEncode = InWasm({
     }
     `
 });
-
+*/
 
 type WasmEncodeType = ReturnType<typeof wasmEncode>;
 
