@@ -119,7 +119,7 @@ describe('Base64Decoder', () => {
           dec.init(6);
           inp[pos] = i;
           // note: explicitly allow '=' in last position
-          assert.strictEqual(dec.put(inp) || dec.end(), MAP.includes(i) || (pos === 7 && i == 61) ? 0 : 1);
+          assert.strictEqual(dec.put(inp) || dec.end(), MAP.includes(i) || (pos === 7 && i == 61) ? 0 : -1);
         }
       }
     });

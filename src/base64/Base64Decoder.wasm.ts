@@ -94,7 +94,7 @@ const wasmDecode = InWasm({
       }
 
       // eval error state lazy (opportunistic, favors good over bad data)
-      if (error >> 24) return 1;
+      if (error >> 24) return -1;
       state->sp = nsp;
       state->dp = dst - state->data;
       return 0;
@@ -102,9 +102,9 @@ const wasmDecode = InWasm({
 
     int end() {
       int rem = state->wp - state->sp;
-      if (rem > 4 && dec()) return 1;
+      if (rem > 4 && dec()) return -1;
       rem = state->wp - state->sp;
-      if (rem < 2) return 1;
+      if (rem < 2) return -1;
 
       unsigned char *src = state->data + state->sp;
       if (rem == 4) {
@@ -121,7 +121,7 @@ const wasmDecode = InWasm({
           dp++;
         }
       }
-      if (accu >> 24) return 1;
+      if (accu >> 24) return -1;
       *((unsigned int *) (state->data + state->dp)) = accu;
       state->dp += dp;
       return 0;
@@ -234,8 +234,8 @@ const wasmDecode = InWasm({
         dst += 12;
         src += 16;
       }
-      //if (wasm_i8x16_bitmask(err) != 0) return 1;
-      if (wasm_v128_any_true(err)) return 1;
+      //if (wasm_i8x16_bitmask(err) != 0) return -1;
+      if (wasm_v128_any_true(err)) return -1;
 
       // operate on 4-byte blocks
       while (src < end) {
@@ -243,7 +243,7 @@ const wasmDecode = InWasm({
         dst += 3;
         src += 4;
       }
-      if (error >> 24) return 1;
+      if (error >> 24) return -1;
       state->sp = nsp;
       state->dp = dst - state->data;
       return 0;
@@ -251,9 +251,9 @@ const wasmDecode = InWasm({
 
     int end() {
       int rem = state->wp - state->sp;
-      if (rem > 4 && dec()) return 1;
+      if (rem > 4 && dec()) return -1;
       rem = state->wp - state->sp;
-      if (rem < 2) return 1;
+      if (rem < 2) return -1;
 
       unsigned char *src = state->data + state->sp;
       if (rem == 4) {
@@ -270,7 +270,7 @@ const wasmDecode = InWasm({
           dp++;
         }
       }
-      if (accu >> 24) return 1;
+      if (accu >> 24) return -1;
       *((unsigned int *) (state->data + state->dp)) = accu;
       state->dp += dp;
       return 0;
@@ -312,6 +312,7 @@ export default class Base64Decoder {
   private _m32!: Uint32Array<ArrayBuffer>;
   private _inst!: ReturnType<typeof wasmDecode>;
   private _mem!: WebAssembly.Memory;
+  private _ended = true;
 
   constructor(public keepSize: number) { }
 
@@ -365,30 +366,62 @@ export default class Base64Decoder {
     m[P32.STATE_SP] = 0;
     m[P32.STATE_DP] = 0;
     this._m32 = m;
+    this._ended = false;
   }
 
   /**
    * Put bytes in `data` into the decoder.
    * Additionally decodes the payload, if it reached 2^17 bytes.
-   * Returns 1 on error, else 0.
+   * Returns 0 on success.
+   * Returns -1 on decoding error.
+   * Returns -2 on released.
+   * Returns -3 on size exceeded.
    */
   public put(data: Uint8Array | Uint16Array | Uint32Array): number {
-    if (!this._inst) return 1;
+    if (!this._inst || this._ended) return -2;
     const m = this._m32;
-    if (data.length + m[P32.STATE_WP] > m[P32.STATE_ESIZE]) return 1;
+    if (data.length + m[P32.STATE_WP] > m[P32.STATE_ESIZE]) return -3;
     this._d.set(data, m[P32.STATE_WP]);
     m[P32.STATE_WP] += data.length;
     // max chunk in input handler is 2^17, try to run in "tandem mode"
-    // also assures that we dont run into illegal offsets in the wasm part
-    return m[P32.STATE_WP] - m[P32.STATE_SP] >= 131072 ? this._inst.exports.dec() : 0;
+    return m[P32.STATE_WP] - m[P32.STATE_SP] >= 131072
+      ? this._inst.exports.dec()
+      : 0;
   }
 
   /**
    * End the current decoding.
    * Also decodes leftover payload from previous put calls.
-   * Returns 1 on error, else 0.
+   * Returns -1 on decoding error, else 0.
    */
   public end(): number {
-    return this._inst ? this._inst.exports.end() : 1;
+    this._ended = true;
+    return this._inst ? this._inst.exports.end() : -1;
+  }
+
+  /**
+   * Max bytes allowed to feed to the decoder,
+   * or -1 on released.
+   */
+  public get maxBytes(): number {
+    return this._inst ? this._m32[P32.STATE_ESIZE] : -1;
+  }
+
+  /**
+   * Bytes loaded into the decoder,
+   * or -1 on released.
+   */
+  public get loadedBytes(): number {
+    return this._inst ? this._m32[P32.STATE_WP] : -1;
+  }
+
+  /**
+   * Free bytes to feed to the decoder,
+   * or -1 on released.
+   */
+  public get freeBytes(): number {
+    return this._inst
+      ? this._m32[P32.STATE_ESIZE] - this._m32[P32.STATE_WP]
+      : -1;
   }
 }
