@@ -32,7 +32,7 @@ const enum P32 {
 /**
  * wasm base64 decoder.
  */
-
+/*
 const wasmDecode = InWasm({
   name: 'decode',
   type: OutputType.INSTANCE,
@@ -128,9 +128,9 @@ const wasmDecode = InWasm({
     }
     `
 });
-
+*/
 // SIMD version (speedup ~1.4x, not covered by tests yet)
-/*
+
 const wasmDecode = InWasm({
   name: 'decode',
   type: OutputType.INSTANCE,
@@ -277,7 +277,7 @@ const wasmDecode = InWasm({
     }
     `
 });
-*/
+
 
 
 // base64 map
