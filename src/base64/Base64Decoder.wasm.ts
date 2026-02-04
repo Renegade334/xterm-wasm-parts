@@ -66,8 +66,8 @@ const wasmDecode = InWasm({
     env: { memory: new WebAssembly.Memory({ initial: 1 }) }
   },
   exports: {
-    dec: () => 0,
-    end: () => 0
+    dec: () => 0 as Return,
+    end: () => 0 as Return
   },
   compile: {
     switches: ['-Wl,-z,stack-size=0', '-Wl,--stack-first']
@@ -346,7 +346,7 @@ const enum Bytes {
 
 
 /**
- * base64 streamline inplace decoder.
+ * base64 stream decoder.
  *
  * Features / assumptions:
  * - lazy chunkwise decoding
@@ -358,19 +358,24 @@ const enum Bytes {
 export default class Base64Decoder {
   private _d!: Uint8Array<ArrayBuffer>;
   private _m32!: Uint32Array<ArrayBuffer>;
-  private _inst!: ReturnType<typeof wasmDecode>;
+  private _inst: ReturnType<typeof wasmDecode> | null = null;
   private _mem!: WebAssembly.Memory;
   private _ended = true;
   private _bytes = 0;
   public keepSize: number;
   public maxBytes: number;
 
+  /**
+   * @param keepSize Keep the wasm instance below this limit when calling `release()`.
+   * @param maxBytes Max allowed bytes to allocate.
+   * @param initialBytes Initial bytes to allocate.
+   */
   constructor(keepSize?: number, maxBytes?: number, initialBytes?: number) {
     this.keepSize = keepSize ?? Bytes.KEEP;
     this.maxBytes = maxBytes ?? Bytes.MAX;
     this._bytes = initialBytes ?? Bytes.INITIAL;
     if (this._bytes > this.maxBytes || this.maxBytes > Bytes.MAX) {
-      throw Error('invalid byte settings');
+      throw new Error('invalid byte settings');
     }
   }
 
@@ -401,9 +406,10 @@ export default class Base64Decoder {
   /**
    * Initializes the decoder for new base64 data.
    * Must be called before doing any decoding attempts.
-   * `size` is the max amount of decoded bytes to be expected.
    * The method will either spawn a new wasm instance or grow
    * the needed memory of an existing instance.
+   * @param maxBytes Max allowed bytes to allocate (overwrites ctor value).
+   * @param initialBytes Initial bytes to allocate (overwrites ctor value).
    */
   public init(maxBytes?: number, initialBytes?: number): void {
     this.maxBytes = maxBytes ?? this.maxBytes;
@@ -432,6 +438,12 @@ export default class Base64Decoder {
     this._ended = false;
   }
 
+  /**
+   * Realloc memory. Realloc only happens, if the requested
+   * size doesn't fit in the current memory.
+   * The new size will be capped by `maxBytes`.
+   * @param requested Bytes to be stored.
+   */
   private _realloc(requested: number): Return {
     const needed = this._m32[P32.STATE_WP] + requested;
     if (this._bytes < needed) {
@@ -459,6 +471,7 @@ export default class Base64Decoder {
    * Put bytes in `data` into the decoder.
    * Additionally decodes the payload, if it reached 2^17 bytes.
    * The return value indicates the type of issue.
+   * @param data Bytes to be loaded.
    */
   public put(data: Uint8Array | Uint16Array | Uint32Array): Return {
     if (!this._inst || this._ended) {
@@ -493,7 +506,7 @@ export default class Base64Decoder {
   public get loadedBytes(): number {
     return this._inst
       ? this._m32[P32.STATE_WP]
-      : Return.NOT_INITIALIZED;
+      : 0;
   }
 
   /**
@@ -502,6 +515,6 @@ export default class Base64Decoder {
   public get freeBytes(): number {
     return this._inst
       ? this.maxBytes - this._m32[P32.STATE_WP]
-      : Return.NOT_INITIALIZED;
+      : 0;
   }
 }

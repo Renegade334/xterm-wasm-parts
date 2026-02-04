@@ -22,6 +22,7 @@ const b4096  = toBytes(d4096);
 const b65536 = toBytes(d65536);
 const b1M    = toBytes(d1M);
 const dec = new Base64Decoder(4000000, 4000000, 4000000);
+dec.init();
 const enc = new Base64Encoder(4000000);
 
 const RUNS = 100;
