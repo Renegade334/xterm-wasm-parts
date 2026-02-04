@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import Base64Decoder, { Return } from './Base64Decoder.wasm';
+import Base64Decoder, { DecodeStatus } from './Base64Decoder.wasm';
 import Base64Encoder from './Base64Encoder.wasm';
 
 // eslint-disable-next-line
@@ -41,8 +41,8 @@ describe('Base64Decoder', () => {
         dec.init(4);
         const inp = new Uint8Array([i]);
         const data = fromBs(encNative(inp));
-        assert.strictEqual(dec.put(data), Return.OK);
-        assert.strictEqual(dec.end(), Return.OK);
+        assert.strictEqual(dec.put(data), DecodeStatus.OK);
+        assert.strictEqual(dec.end(), DecodeStatus.OK);
         assert.deepEqual(dec.data8, inp);
       }
     });
@@ -53,8 +53,8 @@ describe('Base64Decoder', () => {
           dec.init(4);
           const inp = new Uint8Array([a, b]);
           const data = fromBs(encNative(inp));
-          assert.strictEqual(dec.put(data), Return.OK);
-          assert.strictEqual(dec.end(), Return.OK);
+          assert.strictEqual(dec.put(data), DecodeStatus.OK);
+          assert.strictEqual(dec.end(), DecodeStatus.OK);
           assert.deepEqual(dec.data8, inp);
         }
       });
@@ -66,8 +66,8 @@ describe('Base64Decoder', () => {
           dec.init(4);
           const inp = new Uint8Array([0, a, b]);
           const data = fromBs(encNative(inp));
-          assert.strictEqual(dec.put(data), Return.OK);
-          assert.strictEqual(dec.end(), Return.OK);
+          assert.strictEqual(dec.put(data), DecodeStatus.OK);
+          assert.strictEqual(dec.end(), DecodeStatus.OK);
           assert.deepEqual(dec.data8, inp);
         }
       });
@@ -79,8 +79,8 @@ describe('Base64Decoder', () => {
           dec.init(8);
           const inp = new Uint8Array([0, 0, a, b]);
           const data = fromBs(encNative(inp));
-          assert.strictEqual(dec.put(data), Return.OK);
-          assert.strictEqual(dec.end(), Return.OK);
+          assert.strictEqual(dec.put(data), DecodeStatus.OK);
+          assert.strictEqual(dec.end(), DecodeStatus.OK);
           assert.deepEqual(dec.data8, inp);
         }
       });
@@ -98,14 +98,14 @@ describe('Base64Decoder', () => {
         // with padding
         let enc = fromBs(encData[i]);
         dec.init(enc.length);
-        assert.strictEqual(dec.put(enc), Return.OK);
-        assert.strictEqual(dec.end(), Return.OK);
+        assert.strictEqual(dec.put(enc), DecodeStatus.OK);
+        assert.strictEqual(dec.end(), DecodeStatus.OK);
         assert.deepEqual(dec.data8, d.slice(0, i + 1));
         // w'o padding
         enc = fromBs(encDataTrimmed[i]);
         dec.init(enc.length);
-        assert.strictEqual(dec.put(enc), Return.OK);
-        assert.strictEqual(dec.end(), Return.OK);
+        assert.strictEqual(dec.put(enc), DecodeStatus.OK);
+        assert.strictEqual(dec.end(), DecodeStatus.OK);
         assert.deepEqual(dec.data8, d.slice(0, i + 1));
       }
     });
@@ -122,8 +122,8 @@ describe('Base64Decoder', () => {
           assert.strictEqual(
             dec.put(inp) || dec.end(),
             MAP.includes(i) || (pos === 7 && i == 61)
-              ? Return.OK
-              : Return.DECODE_ERROR
+              ? DecodeStatus.OK
+              : DecodeStatus.DECODE_ERROR
           );
         }
       }
@@ -164,32 +164,32 @@ describe('Base64Decoder', () => {
       dec.init(); // pulls values from ctor
       assert.strictEqual((dec as any)._bytes, 1);
       // write 1. byte
-      assert.strictEqual(dec.put(DATA1), Return.OK);
+      assert.strictEqual(dec.put(DATA1), DecodeStatus.OK);
       assert.strictEqual((dec as any)._bytes, 1);
       // write 2. byte
-      assert.strictEqual(dec.put(DATA1), Return.OK);
+      assert.strictEqual(dec.put(DATA1), DecodeStatus.OK);
       assert.strictEqual((dec as any)._bytes, 2);
       // write 3. & 4. byte
-      assert.strictEqual(dec.put(DATA1), Return.OK);
+      assert.strictEqual(dec.put(DATA1), DecodeStatus.OK);
       assert.strictEqual((dec as any)._bytes, 4);
-      assert.strictEqual(dec.put(DATA1), Return.OK);
+      assert.strictEqual(dec.put(DATA1), DecodeStatus.OK);
       assert.strictEqual((dec as any)._bytes, 4);
       // write 5. - 8. byte
-      assert.strictEqual(dec.put(DATA1), Return.OK);
+      assert.strictEqual(dec.put(DATA1), DecodeStatus.OK);
       assert.strictEqual((dec as any)._bytes, 8);
-      assert.strictEqual(dec.put(DATA1), Return.OK);
-      assert.strictEqual(dec.put(DATA1), Return.OK);
-      assert.strictEqual(dec.put(DATA1), Return.OK);
+      assert.strictEqual(dec.put(DATA1), DecodeStatus.OK);
+      assert.strictEqual(dec.put(DATA1), DecodeStatus.OK);
+      assert.strictEqual(dec.put(DATA1), DecodeStatus.OK);
       assert.strictEqual((dec as any)._bytes, 8);
       // 9. byte clamps to maxByte
-      assert.strictEqual(dec.put(DATA1), Return.OK);
+      assert.strictEqual(dec.put(DATA1), DecodeStatus.OK);
       assert.strictEqual((dec as any)._bytes, 11);
-      assert.strictEqual(dec.put(DATA1), Return.OK);
-      assert.strictEqual(dec.put(DATA1), Return.OK);
+      assert.strictEqual(dec.put(DATA1), DecodeStatus.OK);
+      assert.strictEqual(dec.put(DATA1), DecodeStatus.OK);
       // 12. byte returns size error
-      assert.strictEqual(dec.put(DATA1), Return.SIZE_EXCEEDED);
+      assert.strictEqual(dec.put(DATA1), DecodeStatus.SIZE_EXCEEDED);
       // end still works and gives correct result
-      assert.strictEqual(dec.end(), Return.OK);
+      assert.strictEqual(dec.end(), DecodeStatus.OK);
       assert.deepEqual(dec.data8, Buffer.from('B'.repeat(11), 'base64'));
     });
     it('realloc with memory.grow', () => {
@@ -199,33 +199,33 @@ describe('Base64Decoder', () => {
       dec.init();
       assert.strictEqual((dec as any)._bytes, 30192);
       // writing 30192 bytes should not realloc
-      assert.strictEqual(dec.put(DATA.subarray(0, 30192)), Return.OK);
+      assert.strictEqual(dec.put(DATA.subarray(0, 30192)), DecodeStatus.OK);
       assert.strictEqual((dec as any)._bytes, 30192);
       assert.strictEqual(dec.freeBytes, 125000-30192);
       // write next byte reallocs w'o grow
-      assert.strictEqual(dec.put(DATA.subarray(0, 1)), Return.OK);
+      assert.strictEqual(dec.put(DATA.subarray(0, 1)), DecodeStatus.OK);
       assert.strictEqual((dec as any)._bytes, 30192*2);
       assert.strictEqual(dec.freeBytes, 125000-30192-1);
       // writing 30192-1 bytes should not realloc
-      assert.strictEqual(dec.put(DATA.subarray(0, 30192-1)), Return.OK);
+      assert.strictEqual(dec.put(DATA.subarray(0, 30192-1)), DecodeStatus.OK);
       assert.strictEqual((dec as any)._bytes, 30192*2);
       assert.strictEqual((dec as any)._mem.buffer.byteLength, 65536);
       assert.strictEqual(dec.freeBytes, 125000-30192-1-30192+1);
       // write next byte reallocs with grow
-      assert.strictEqual(dec.put(DATA.subarray(0, 1)), Return.OK);
+      assert.strictEqual(dec.put(DATA.subarray(0, 1)), DecodeStatus.OK);
       assert.strictEqual((dec as any)._bytes, 30192*4);
       assert.strictEqual((dec as any)._mem.buffer.byteLength, 65536*2);
       assert.strictEqual(dec.freeBytes, 125000-30192-1-30192+1-1);
       // don't grow beyond 125000
-      assert.strictEqual(dec.put(DATA.subarray(0, 30192*2-1)), Return.OK);
+      assert.strictEqual(dec.put(DATA.subarray(0, 30192*2-1)), DecodeStatus.OK);
       assert.strictEqual((dec as any)._bytes, 30192*4);
-      assert.strictEqual(dec.put(DATA.subarray(0, 1)), Return.OK);
+      assert.strictEqual(dec.put(DATA.subarray(0, 1)), DecodeStatus.OK);
       assert.strictEqual((dec as any)._bytes, 125000);
       assert.strictEqual(dec.freeBytes, 125000-30192-1-30192+1-1-30192*2+1-1);
       // write to 125000
-      assert.strictEqual(dec.put(DATA.subarray(0, dec.freeBytes)), Return.OK);
-      assert.strictEqual(dec.put(DATA.subarray(0, 1)), Return.SIZE_EXCEEDED);
-      assert.strictEqual(dec.end(), Return.OK);
+      assert.strictEqual(dec.put(DATA.subarray(0, dec.freeBytes)), DecodeStatus.OK);
+      assert.strictEqual(dec.put(DATA.subarray(0, 1)), DecodeStatus.SIZE_EXCEEDED);
+      assert.strictEqual(dec.end(), DecodeStatus.OK);
       assert.deepEqual(dec.data8, Buffer.from('B'.repeat(125000), 'base64'));
     });
   });
@@ -239,8 +239,8 @@ describe('Base64Decoder', () => {
       dec.release();
       assert.notEqual((dec as any)._inst, null);
       dec.init();
-      assert.strictEqual(dec.put(fromBs('B'.repeat(1024*1024+2))), Return.OK);
-      assert.strictEqual(dec.end(), Return.OK);
+      assert.strictEqual(dec.put(fromBs('B'.repeat(1024*1024+2))), DecodeStatus.OK);
+      assert.strictEqual(dec.end(), DecodeStatus.OK);
       assert.deepEqual(dec.data8, Buffer.from('B'.repeat(1024*1024+2), 'base64'));
       assert.strictEqual(dec.loadedBytes, 1024*1024+2);
       assert.strictEqual(dec.freeBytes, 65535*65536-1024*1024-2);

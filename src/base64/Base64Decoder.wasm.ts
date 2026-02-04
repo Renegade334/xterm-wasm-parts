@@ -8,7 +8,7 @@ import { InWasm, OutputMode, OutputType } from 'inwasm-runtime';
 /**
  * Decoder return values.
  */
-export const enum Return {
+export const enum DecodeStatus {
   /**
    * No error.
    */
@@ -53,6 +53,7 @@ const enum P32 {
   STATE_DATA = 1288   // 16 byte aligned
 }
 
+
 /**
  * wasm base64 decoder.
  */
@@ -66,8 +67,8 @@ const wasmDecode = InWasm({
     env: { memory: new WebAssembly.Memory({ initial: 1 }) }
   },
   exports: {
-    dec: () => 0 as Return,
-    end: () => 0 as Return
+    dec: () => 0 as DecodeStatus,
+    end: () => 0 as DecodeStatus
   },
   compile: {
     switches: ['-Wl,-z,stack-size=0', '-Wl,--stack-first']
@@ -311,6 +312,7 @@ const MAP = new Uint8Array(
     .map(el => el.charCodeAt(0))
 );
 
+
 // init decoder maps in LE order
 const D = new Uint32Array(1024);
 D.fill(0xFF000000);
@@ -318,6 +320,7 @@ for (let i = 0; i < MAP.length; ++i) D[MAP[i]] = i << 2;
 for (let i = 0; i < MAP.length; ++i) D[256 + MAP[i]] = i >> 4 | ((i << 4) & 0xFF) << 8;
 for (let i = 0; i < MAP.length; ++i) D[512 + MAP[i]] = (i >> 2) << 8 | ((i << 6) & 0xFF) << 16;
 for (let i = 0; i < MAP.length; ++i) D[768 + MAP[i]] = i << 16;
+
 
 const EMPTY = new Uint8Array(0);
 
@@ -444,17 +447,17 @@ export default class Base64Decoder {
    * The new size will be capped by `maxBytes`.
    * @param requested Bytes to be stored.
    */
-  private _realloc(requested: number): Return {
+  private _realloc(requested: number): DecodeStatus {
     const needed = this._m32[P32.STATE_WP] + requested;
     if (this._bytes < needed) {
       if (needed > this.maxBytes) {
-        return Return.SIZE_EXCEEDED;
+        return DecodeStatus.SIZE_EXCEEDED;
       }
       let newSize = this._bytes;
       while ((newSize *= 2) < needed) {}
       newSize = Math.min(newSize, this.maxBytes);
       if (newSize < needed) {
-        return Return.SIZE_EXCEEDED;
+        return DecodeStatus.SIZE_EXCEEDED;
       }
       if (newSize + Bytes._DATA_OFFSET > this._mem.buffer.byteLength) {
         const addPages = Math.ceil((newSize + Bytes._DATA_OFFSET - this._mem.buffer.byteLength) / 65536);
@@ -464,7 +467,7 @@ export default class Base64Decoder {
       }
       this._bytes = newSize;
     }
-    return Return.OK;
+    return DecodeStatus.OK;
   }
 
   /**
@@ -473,12 +476,12 @@ export default class Base64Decoder {
    * The return value indicates the type of issue.
    * @param data Bytes to be loaded.
    */
-  public put(data: Uint8Array | Uint16Array | Uint32Array): Return {
+  public put(data: Uint8Array | Uint16Array | Uint32Array): DecodeStatus {
     if (!this._inst || this._ended) {
-      return Return.NOT_INITIALIZED;
+      return DecodeStatus.NOT_INITIALIZED;
     }
     if (this._realloc(data.length)){
-      return Return.SIZE_EXCEEDED;
+      return DecodeStatus.SIZE_EXCEEDED;
     }
     const m = this._m32;
     this._d.set(data, m[P32.STATE_WP]);
@@ -486,18 +489,18 @@ export default class Base64Decoder {
     // max chunk in input handler is 2^17, try to run in "tandem mode"
     return m[P32.STATE_WP] - m[P32.STATE_SP] >= 131072
       ? this._inst.exports.dec()
-      : Return.OK;
+      : DecodeStatus.OK;
   }
 
   /**
    * End the current decoding.
    * Also decodes leftover payload from previous put calls.
    */
-  public end(): Return {
+  public end(): DecodeStatus {
     this._ended = true;
     return this._inst
       ? this._inst.exports.end()
-      : Return.NOT_INITIALIZED;
+      : DecodeStatus.NOT_INITIALIZED;
   }
 
   /**
