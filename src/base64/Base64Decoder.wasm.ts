@@ -67,104 +67,6 @@ const wasmDecode = InWasm({
     env: { memory: new WebAssembly.Memory({ initial: 1 }) }
   },
   exports: {
-    dec: () => 0 as DecodeStatus,
-    end: () => 0 as DecodeStatus
-  },
-  compile: {
-    switches: ['-Wl,-z,stack-size=0', '-Wl,--stack-first']
-  },
-  code: `
-    typedef struct {
-      unsigned int wp;
-      unsigned int sp;
-      unsigned int dp;
-      unsigned int e_size;
-      unsigned int dummy[4];
-      unsigned char data[0];
-    } State;
-
-    unsigned int *D0 = (unsigned int *) ${P32.D0*4};
-    unsigned int *D1 = (unsigned int *) ${P32.D1*4};
-    unsigned int *D2 = (unsigned int *) ${P32.D2*4};
-    unsigned int *D3 = (unsigned int *) ${P32.D3*4};
-    State *state = (State *) ${P32.STATE*4};
-
-    __attribute__((noinline)) int dec() {
-      unsigned int nsp = (state->wp - 1) & ~3;
-      unsigned char *src = state->data + state->sp;
-      unsigned char *end = state->data + nsp;
-      unsigned char *dst = state->data + state->dp;
-      unsigned int error = 0;
-
-      // 4x loop unrolling (~30% speedup)
-      // FIXME: investigate why zeroing the last bits of nsp does not always work here
-      //        a temp fix is the line below, which always subtracts 16 from the end pointer
-      //        this has a tiny penalty of always doing the last portion in 4-bytes
-      //unsigned char *end16 = state->data + (nsp & ~15);
-      unsigned char *end16 = state->data + nsp - 16;
-      while (src < end16) {
-        error |= *((unsigned int *)  dst   ) = D0[src[ 0]] | D1[src[ 1]] | D2[src[ 2]] | D3[src[ 3]];
-        error |= *((unsigned int *) (dst+3)) = D0[src[ 4]] | D1[src[ 5]] | D2[src[ 6]] | D3[src[ 7]];
-        error |= *((unsigned int *) (dst+6)) = D0[src[ 8]] | D1[src[ 9]] | D2[src[10]] | D3[src[11]];
-        error |= *((unsigned int *) (dst+9)) = D0[src[12]] | D1[src[13]] | D2[src[14]] | D3[src[15]];
-        dst += 12;
-        src += 16;
-      }
-
-      // operate on 4-byte blocks
-      while (src < end) {
-        error |= *((unsigned int *) dst) = D0[src[0]] | D1[src[1]] | D2[src[2]] | D3[src[3]];
-        dst += 3;
-        src += 4;
-      }
-
-      // eval error state lazy (opportunistic, favors good over bad data)
-      if (error >> 24) return -1;
-      state->sp = nsp;
-      state->dp = dst - state->data;
-      return 0;
-    }
-
-    int end() {
-      int rem = state->wp - state->sp;
-      if (rem > 4 && dec()) return -1;
-      rem = state->wp - state->sp;
-      if (rem < 2) return -1;
-
-      unsigned char *src = state->data + state->sp;
-      if (rem == 4) {
-        if (src[3] == 61) rem--;
-        if (src[2] == 61) rem--;
-      }
-      unsigned int accu = D0[src[0]] | D1[src[1]];
-      int dp = 1;
-      if (rem > 2) {
-        accu |= D2[src[2]];
-        dp++;
-        if (rem == 4) {
-          accu |= D3[src[3]];
-          dp++;
-        }
-      }
-      if (accu >> 24) return -1;
-      *((unsigned int *) (state->data + state->dp)) = accu;
-      state->dp += dp;
-      return 0;
-    }
-    `
-});
-
-// SIMD version (speedup ~1.4x, not covered by tests yet)
-/*
-const wasmDecode = InWasm({
-  name: 'decode',
-  type: OutputType.INSTANCE,
-  mode: OutputMode.SYNC,
-  srctype: 'Clang-C',
-  imports: {
-    env: { memory: new WebAssembly.Memory({ initial: 1 }) }
-  },
-  exports: {
     dec: () => 0,
     end: () => 0
   },
@@ -302,7 +204,6 @@ const wasmDecode = InWasm({
     }
     `
 });
-*/
 
 
 // base64 map
